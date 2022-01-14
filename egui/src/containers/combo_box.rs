@@ -48,6 +48,11 @@ impl ComboBox {
         }
     }
 
+    pub fn with_label(mut self, label: impl Into<WidgetText>) -> Self {
+        self.label = Some(label.into());
+        self
+    }
+
     /// Set the width of the button and menu
     pub fn width(mut self, width: f32) -> Self {
         self.width = Some(width);
