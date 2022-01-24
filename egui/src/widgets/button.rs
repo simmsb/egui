@@ -1,3 +1,5 @@
+use std::hash::Hash;
+
 use crate::*;
 
 /// Clickable button with text.
@@ -30,6 +32,7 @@ pub struct Button {
     frame: Option<bool>,
     min_size: Vec2,
     image: Option<widgets::Image>,
+    id: Option<Id>,
 }
 
 impl Button {
@@ -44,6 +47,7 @@ impl Button {
             frame: None,
             min_size: Vec2::ZERO,
             image: None,
+            id: None,
         }
     }
 
@@ -64,6 +68,7 @@ impl Button {
             wrap: None,
             min_size: Vec2::ZERO,
             image: Some(widgets::Image::new(texture_id, size)),
+            id: None,
         }
     }
 
@@ -128,6 +133,12 @@ impl Button {
         self
     }
 
+    /// Set the id of the button
+    pub fn with_id(mut self, source: impl Hash) -> Self {
+        self.id = Some(Id::new(source));
+        self
+    }
+
     pub(crate) fn min_size(mut self, min_size: Vec2) -> Self {
         self.min_size = min_size;
         self
@@ -146,6 +157,7 @@ impl Widget for Button {
             frame,
             min_size,
             image,
+            id: overriden_id,
         } = self;
 
         let frame = frame.unwrap_or_else(|| ui.visuals().button_frame);
@@ -170,7 +182,15 @@ impl Widget for Button {
             desired_size.y = desired_size.y.max(image.size().y + 2.0 * button_padding.y);
         }
 
-        let (rect, response) = ui.allocate_at_least(desired_size, sense);
+        let (mut id, rect) = ui.allocate_space(desired_size);
+
+        if let Some(overriden_id) = overriden_id {
+            id = overriden_id;
+        }
+
+        let response = ui.interact(rect, id, sense);
+        let rect = response.rect;
+
         response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, text.text()));
 
         if ui.is_rect_visible(rect) {
