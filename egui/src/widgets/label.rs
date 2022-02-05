@@ -2,6 +2,8 @@ use crate::{widget_text::WidgetTextGalley, *};
 
 /// Static text.
 ///
+/// Usually it is more convenient to use [`Ui::label`].
+///
 /// ```
 /// # egui::__run_test_ui(|ui| {
 /// ui.label("Equivalent");
@@ -43,97 +45,13 @@ impl Label {
         self
     }
 
-    #[deprecated = "Replaced by Label::new(RichText::new(…).text_style(…))"]
-    pub fn text_style(mut self, text_style: TextStyle) -> Self {
-        self.text = self.text.text_style(text_style);
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).heading())"]
-    pub fn heading(mut self) -> Self {
-        self.text = self.text.heading();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).monospace())"]
-    pub fn monospace(mut self) -> Self {
-        self.text = self.text.monospace();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).code())"]
-    pub fn code(mut self) -> Self {
-        self.text = self.text.code();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).strong())"]
-    pub fn strong(mut self) -> Self {
-        self.text = self.text.strong();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).weak())"]
-    pub fn weak(mut self) -> Self {
-        self.text = self.text.weak();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).underline())"]
-    pub fn underline(mut self) -> Self {
-        self.text = self.text.underline();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).strikethrough())"]
-    pub fn strikethrough(mut self) -> Self {
-        self.text = self.text.strikethrough();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).italics())"]
-    pub fn italics(mut self) -> Self {
-        self.text = self.text.italics();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).small())"]
-    pub fn small(mut self) -> Self {
-        self.text = self.text.small();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).small_raised())"]
-    pub fn small_raised(mut self) -> Self {
-        self.text = self.text.small_raised();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).raised())"]
-    pub fn raised(mut self) -> Self {
-        self.text = self.text.raised();
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).background_color(…))"]
-    pub fn background_color(mut self, background_color: impl Into<Color32>) -> Self {
-        self.text = self.text.background_color(background_color);
-        self
-    }
-
-    #[deprecated = "Replaced by Label::new(RichText::new(…).text_color())"]
-    pub fn text_color(mut self, text_color: impl Into<Color32>) -> Self {
-        self.text = self.text.color(text_color);
-        self
-    }
-
     /// Make the label respond to clicks and/or drags.
     ///
     /// By default, a label is inert and does not respond to click or drags.
     /// By calling this you can turn the label into a button of sorts.
     /// This will also give the label the hover-effect of a button, but without the frame.
     ///
-    /// ``` rust
+    /// ```
     /// # use egui::{Label, Sense};
     /// # egui::__run_test_ui(|ui| {
     /// if ui.add(Label::new("click me").sense(Sense::click())).clicked() {
@@ -166,7 +84,9 @@ impl Label {
         }
 
         let valign = ui.layout().vertical_align();
-        let mut text_job = self.text.into_text_job(ui.style(), TextStyle::Body, valign);
+        let mut text_job = self
+            .text
+            .into_text_job(ui.style(), FontSelection::Default, valign);
 
         let should_wrap = self.wrap.unwrap_or_else(|| ui.wrap_text());
         let available_width = ui.available_width();
@@ -190,7 +110,7 @@ impl Label {
             if let Some(first_section) = text_job.job.sections.first_mut() {
                 first_section.leading_space = first_row_indentation;
             }
-            let text_galley = text_job.into_galley(ui.fonts());
+            let text_galley = text_job.into_galley(&*ui.fonts());
 
             let pos = pos2(ui.max_rect().left(), ui.cursor().top());
             assert!(
@@ -223,7 +143,7 @@ impl Label {
                 text_job.job.justify = ui.layout().horizontal_justify();
             };
 
-            let text_galley = text_job.into_galley(ui.fonts());
+            let text_galley = text_job.into_galley(&*ui.fonts());
             let (rect, response) = ui.allocate_exact_size(text_galley.size(), self.sense);
             let pos = match text_galley.galley.job.halign {
                 Align::LEFT => rect.left_top(),

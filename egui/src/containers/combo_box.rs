@@ -27,6 +27,16 @@ pub struct ComboBox {
 }
 
 impl ComboBox {
+    /// Create new `ComboBox` with id and label
+    pub fn new(id_source: impl std::hash::Hash, label: impl Into<WidgetText>) -> Self {
+        Self {
+            id_source: Id::new(id_source),
+            label: Some(label.into()),
+            selected_text: Default::default(),
+            width: None,
+        }
+    }
+
     /// Label shown next to the combo box
     pub fn from_label(label: impl Into<WidgetText>) -> Self {
         let label = label.into();
@@ -201,6 +211,7 @@ fn combo_box_dyn<'c, R>(
         ScrollArea::vertical()
             .max_height(ui.spacing().combo_height)
             .show(ui, menu_contents)
+            .inner
     });
 
     InnerResponse {

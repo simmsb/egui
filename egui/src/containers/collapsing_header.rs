@@ -1,9 +1,9 @@
 use std::hash::Hash;
 
 use crate::*;
-use epaint::{Shape, TextStyle};
+use epaint::Shape;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Default)]
 #[cfg_attr(feature = "serde", derive(serde::Deserialize, serde::Serialize))]
 #[cfg_attr(feature = "serde", serde(default))]
 pub(crate) struct State {
@@ -13,22 +13,13 @@ pub(crate) struct State {
     open_height: Option<f32>,
 }
 
-impl Default for State {
-    fn default() -> Self {
-        Self {
-            open: false,
-            open_height: None,
-        }
-    }
-}
-
 impl State {
     pub fn load(ctx: &Context, id: Id) -> Option<Self> {
-        ctx.memory().data.get_persisted(id)
+        ctx.data().get_persisted(id)
     }
 
     pub fn store(self, ctx: &Context, id: Id) {
-        ctx.memory().data.insert_persisted(id, self);
+        ctx.data().insert_persisted(id, self);
     }
 
     pub fn from_memory_with_default_open(ctx: &Context, id: Id, default_open: bool) -> Self {
@@ -107,7 +98,7 @@ impl State {
 }
 
 /// Paint the arrow icon that indicated if the region is open or not
-pub(crate) fn paint_icon(ui: &mut Ui, openness: f32, response: &Response) {
+pub(crate) fn paint_default_icon(ui: &mut Ui, openness: f32, response: &Response) {
     let visuals = ui.style().interact(response);
     let stroke = visuals.fg_stroke;
 
@@ -125,6 +116,9 @@ pub(crate) fn paint_icon(ui: &mut Ui, openness: f32, response: &Response) {
 
     ui.painter().add(Shape::closed_line(points, stroke));
 }
+
+/// A function that paints an icon indicating if the region is open or not
+pub type IconPainter = Box<dyn FnOnce(&mut Ui, f32, &Response)>;
 
 /// A header which can be collapsed/expanded, revealing a contained [`Ui`] region.
 ///
@@ -150,6 +144,7 @@ pub struct CollapsingHeader {
     selectable: bool,
     selected: bool,
     show_background: bool,
+    icon: Option<IconPainter>,
 }
 
 impl CollapsingHeader {
@@ -171,6 +166,7 @@ impl CollapsingHeader {
             selectable: false,
             selected: false,
             show_background: false,
+            icon: None,
         }
     }
 
@@ -195,12 +191,6 @@ impl CollapsingHeader {
     /// This is useful if the title label is dynamic or not unique.
     pub fn id_source(mut self, id_source: impl Hash) -> Self {
         self.id_source = Id::new(id_source);
-        self
-    }
-
-    #[deprecated = "Replaced by: CollapsingHeader::new(RichText::new(text).text_style(…))"]
-    pub fn text_style(mut self, text_style: TextStyle) -> Self {
-        self.text = self.text.text_style(text_style);
         self
     }
 
@@ -251,6 +241,28 @@ impl CollapsingHeader {
         self.show_background = show_background;
         self
     }
+
+    /// Use the provided function to render a different `CollapsingHeader` icon.
+    /// Defaults to a triangle that animates as the `CollapsingHeader` opens and closes.
+    ///
+    /// For example:
+    /// ```
+    /// # egui::__run_test_ui(|ui| {
+    /// fn circle_icon(ui: &mut egui::Ui, openness: f32, response: &egui::Response) {
+    ///     let stroke = ui.style().interact(&response).fg_stroke;
+    ///     let radius = egui::lerp(2.0..=3.0, openness);
+    ///     ui.painter().circle_filled(response.rect.center(), radius, stroke.color);
+    /// }
+    ///
+    /// egui::CollapsingHeader::new("Circles")
+    ///   .icon(circle_icon)
+    ///   .show(ui, |ui| { ui.label("Hi!"); });
+    /// # });
+    /// ```
+    pub fn icon(mut self, icon_fn: impl FnOnce(&mut Ui, f32, &Response) + 'static) -> Self {
+        self.icon = Some(Box::new(icon_fn));
+        self
+    }
 }
 
 struct Prepared {
@@ -266,6 +278,7 @@ impl CollapsingHeader {
             "Horizontal collapsing is unimplemented"
         );
         let Self {
+            icon,
             text,
             default_open,
             open,
@@ -337,9 +350,12 @@ impl CollapsingHeader {
             {
                 let rect = rect.expand(visuals.expansion);
 
-                let corner_radius = 2.0;
-                ui.painter()
-                    .rect(rect, corner_radius, visuals.bg_fill, visuals.bg_stroke);
+                ui.painter().rect(
+                    rect,
+                    visuals.corner_radius,
+                    visuals.bg_fill,
+                    visuals.bg_stroke,
+                );
             }
 
             {
@@ -353,7 +369,11 @@ impl CollapsingHeader {
                     ..header_response.clone()
                 };
                 let openness = state.openness(ui.ctx(), id);
-                paint_icon(ui, openness, &icon_response);
+                if let Some(icon) = icon {
+                    icon(ui, openness, &icon_response);
+                } else {
+                    paint_default_icon(ui, openness, &icon_response);
+                }
             }
 
             text.paint_with_visuals(ui.painter(), text_pos, &visuals);

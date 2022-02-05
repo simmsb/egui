@@ -85,18 +85,6 @@ impl Button {
         self
     }
 
-    #[deprecated = "Replaced by: Button::new(RichText::new(text).color(…))"]
-    pub fn text_color(mut self, text_color: Color32) -> Self {
-        self.text = self.text.color(text_color);
-        self
-    }
-
-    #[deprecated = "Replaced by: Button::new(RichText::new(text).text_style(…))"]
-    pub fn text_style(mut self, text_style: TextStyle) -> Self {
-        self.text = self.text.text_style(text_style);
-        self
-    }
-
     /// Override background fill color. Note that this will override any on-hover effects.
     /// Calling this will also turn on the frame.
     pub fn fill(mut self, fill: impl Into<Color32>) -> Self {
@@ -261,18 +249,6 @@ impl<'a> Checkbox<'a> {
             text: text.into(),
         }
     }
-
-    #[deprecated = "Replaced by: Checkbox::new(RichText::new(text).color(…))"]
-    pub fn text_color(mut self, text_color: Color32) -> Self {
-        self.text = self.text.color(text_color);
-        self
-    }
-
-    #[deprecated = "Replaced by: Checkbox::new(RichText::new(text).text_style(…))"]
-    pub fn text_style(mut self, text_style: TextStyle) -> Self {
-        self.text = self.text.text_style(text_style);
-        self
-    }
 }
 
 impl<'a> Widget for Checkbox<'a> {
@@ -367,18 +343,6 @@ impl RadioButton {
             text: text.into(),
         }
     }
-
-    #[deprecated = "Replaced by: RadioButton::new(RichText::new(text).color(…))"]
-    pub fn text_color(mut self, text_color: Color32) -> Self {
-        self.text = self.text.color(text_color);
-        self
-    }
-
-    #[deprecated = "Replaced by: RadioButton::new(RichText::new(text).text_style(…))"]
-    pub fn text_style(mut self, text_style: TextStyle) -> Self {
-        self.text = self.text.text_style(text_style);
-        self
-    }
 }
 
 impl Widget for RadioButton {
@@ -450,7 +414,7 @@ pub struct ImageButton {
 }
 
 impl ImageButton {
-    pub fn new(texture_id: TextureId, size: impl Into<Vec2>) -> Self {
+    pub fn new(texture_id: impl Into<TextureId>, size: impl Into<Vec2>) -> Self {
         Self {
             image: widgets::Image::new(texture_id, size),
             sense: Sense::click(),
@@ -513,7 +477,12 @@ impl Widget for ImageButton {
         if ui.is_rect_visible(rect) {
             let (expansion, corner_radius, fill, stroke) = if selected {
                 let selection = ui.visuals().selection;
-                (-padding, 0.0, selection.bg_fill, selection.stroke)
+                (
+                    -padding,
+                    Rounding::none(),
+                    selection.bg_fill,
+                    selection.stroke,
+                )
             } else if frame {
                 let visuals = ui.style().interact(&response);
                 let expansion = if response.hovered {

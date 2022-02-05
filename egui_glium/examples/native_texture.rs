@@ -1,4 +1,7 @@
 //! Example how to use [epi::NativeTexture] with glium.
+
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")] // hide console window on Windows in release
+
 use epi::NativeTexture;
 use glium::glutin;
 
@@ -59,7 +62,7 @@ fn main() {
         let mut redraw = || {
             let mut quit = false;
 
-            let (needs_repaint, shapes) = egui_glium.run(&display, |egui_ctx| {
+            let needs_repaint = egui_glium.run(&display, |egui_ctx| {
                 egui::SidePanel::left("my_side_panel").show(egui_ctx, |ui| {
                     if ui
                         .add(egui::Button::image_and_text(
@@ -95,7 +98,7 @@ fn main() {
 
                 // draw things behind egui here
 
-                egui_glium.paint(&display, &mut target, shapes);
+                egui_glium.paint(&display, &mut target);
 
                 // draw things on top of egui here
 

@@ -1,3 +1,13 @@
+use egui::Vec2;
+use winit::dpi::LogicalSize;
+
+pub fn points_to_size(points: Vec2) -> LogicalSize<f64> {
+    winit::dpi::LogicalSize {
+        width: points.x as f64,
+        height: points.y as f64,
+    }
+}
+
 pub fn window_builder(
     native_options: &epi::NativeOptions,
     window_settings: &Option<crate::WindowSettings>,
@@ -12,6 +22,13 @@ pub fn window_builder(
         .with_transparent(native_options.transparent)
         .with_window_icon(window_icon);
 
+    if let Some(min_size) = native_options.min_window_size {
+        window_builder = window_builder.with_min_inner_size(points_to_size(min_size));
+    }
+    if let Some(max_size) = native_options.max_window_size {
+        window_builder = window_builder.with_max_inner_size(points_to_size(max_size));
+    }
+
     window_builder =
         window_builder_drag_and_drop(window_builder, native_options.drag_and_drop_support);
 
@@ -20,10 +37,7 @@ pub fn window_builder(
     if let Some(window_settings) = window_settings {
         window_builder = window_settings.initialize_window(window_builder);
     } else if let Some(initial_size_points) = initial_size_points {
-        window_builder = window_builder.with_inner_size(winit::dpi::LogicalSize {
-            width: initial_size_points.x as f64,
-            height: initial_size_points.y as f64,
-        });
+        window_builder = window_builder.with_inner_size(points_to_size(initial_size_points));
     }
 
     window_builder
@@ -55,10 +69,9 @@ pub fn handle_app_output(
     window: &winit::window::Window,
     current_pixels_per_point: f32,
     app_output: epi::backend::AppOutput,
-) -> epi::backend::TexAllocationData {
+) {
     let epi::backend::AppOutput {
         quit: _,
-        tex_allocation_data,
         window_size,
         window_title,
         decorated,
@@ -86,8 +99,6 @@ pub fn handle_app_output(
     if drag_window {
         let _ = window.drag_window();
     }
-
-    tex_allocation_data
 }
 
 // ----------------------------------------------------------------------------
@@ -95,7 +106,7 @@ pub fn handle_app_output(
 /// For loading/saving app state and/or egui memory to disk.
 pub struct Persistence {
     storage: Option<Box<dyn epi::Storage>>,
-    last_auto_save: std::time::Instant,
+    last_auto_save: instant::Instant,
 }
 
 #[allow(clippy::unused_self)]
@@ -116,7 +127,7 @@ impl Persistence {
 
         Self {
             storage: create_storage(app_name),
-            last_auto_save: std::time::Instant::now(),
+            last_auto_save: instant::Instant::now(),
         }
     }
 
@@ -177,7 +188,7 @@ impl Persistence {
         egui_ctx: &egui::Context,
         window: &winit::window::Window,
     ) {
-        let now = std::time::Instant::now();
+        let now = instant::Instant::now();
         if now - self.last_auto_save > app.auto_save_interval() {
             self.save(app, egui_ctx, window);
             self.last_auto_save = now;
@@ -191,30 +202,34 @@ impl Persistence {
 pub struct EpiIntegration {
     frame: epi::Frame,
     persistence: crate::epi::Persistence,
-    pub egui_ctx: egui::CtxRef,
+    pub egui_ctx: egui::Context,
     egui_winit: crate::State,
     pub app: Box<dyn epi::App>,
     /// When set, it is time to quit
     quit: bool,
+    can_drag_window: bool,
 }
 
 impl EpiIntegration {
     pub fn new(
         integration_name: &'static str,
+        max_texture_side: usize,
         window: &winit::window::Window,
         repaint_signal: std::sync::Arc<dyn epi::backend::RepaintSignal>,
         persistence: crate::epi::Persistence,
         app: Box<dyn epi::App>,
     ) -> Self {
-        let egui_ctx = egui::CtxRef::default();
+        let egui_ctx = egui::Context::default();
 
         *egui_ctx.memory() = persistence.load_memory().unwrap_or_default();
+
+        let prefer_dark_mode = prefer_dark_mode();
 
         let frame = epi::Frame::new(epi::backend::FrameData {
             info: epi::IntegrationInfo {
                 name: integration_name,
                 web_info: None,
-                prefer_dark_mode: None, // TODO: figure out system default
+                prefer_dark_mode,
                 cpu_usage: None,
                 native_pixels_per_point: Some(crate::native_pixels_per_point(window)),
             },
@@ -222,13 +237,20 @@ impl EpiIntegration {
             repaint_signal,
         });
 
+        if prefer_dark_mode == Some(true) {
+            egui_ctx.set_visuals(egui::Visuals::dark());
+        } else {
+            egui_ctx.set_visuals(egui::Visuals::light());
+        }
+
         let mut slf = Self {
             frame,
             persistence,
             egui_ctx,
-            egui_winit: crate::State::new(window),
+            egui_winit: crate::State::new(max_texture_side, window),
             app,
             quit: false,
+            can_drag_window: false,
         };
 
         slf.setup(window);
@@ -243,17 +265,19 @@ impl EpiIntegration {
         self.app
             .setup(&self.egui_ctx, &self.frame, self.persistence.storage());
         let app_output = self.frame.take_app_output();
-        self.quit |= app_output.quit;
-        let tex_alloc_data =
-            crate::epi::handle_app_output(window, self.egui_ctx.pixels_per_point(), app_output);
-        self.frame.lock().output.tex_allocation_data = tex_alloc_data; // Do it later
+
+        if app_output.quit {
+            self.quit = self.app.on_exit_event();
+        }
+
+        crate::epi::handle_app_output(window, self.egui_ctx.pixels_per_point(), app_output);
     }
 
     fn warm_up(&mut self, window: &winit::window::Window) {
-        let saved_memory = self.egui_ctx.memory().clone();
+        let saved_memory: egui::Memory = self.egui_ctx.memory().clone();
         self.egui_ctx.memory().set_everything_is_visible(true);
-        let (_, tex_alloc_data, _) = self.update(window);
-        self.frame.lock().output.tex_allocation_data = tex_alloc_data; // handle it next frame
+        let (_, textures_delta, _) = self.update(window);
+        self.egui_ctx.output().textures_delta = textures_delta; // Handle it next frame
         *self.egui_ctx.memory() = saved_memory; // We don't want to remember that windows were huge.
         self.egui_ctx.clear_animations();
     }
@@ -264,8 +288,19 @@ impl EpiIntegration {
     }
 
     pub fn on_event(&mut self, event: &winit::event::WindowEvent<'_>) {
-        use winit::event::WindowEvent;
-        self.quit |= matches!(event, WindowEvent::CloseRequested | WindowEvent::Destroyed);
+        use winit::event::{ElementState, MouseButton, WindowEvent};
+
+        match event {
+            WindowEvent::CloseRequested => self.quit = self.app.on_exit_event(),
+            WindowEvent::Destroyed => self.quit = true,
+            WindowEvent::MouseInput {
+                button: MouseButton::Left,
+                state: ElementState::Pressed,
+                ..
+            } => self.can_drag_window = true,
+            _ => {}
+        }
+
         self.egui_winit.on_event(&self.egui_ctx, event);
     }
 
@@ -273,12 +308,8 @@ impl EpiIntegration {
     pub fn update(
         &mut self,
         window: &winit::window::Window,
-    ) -> (
-        bool,
-        epi::backend::TexAllocationData,
-        Vec<egui::epaint::ClippedShape>,
-    ) {
-        let frame_start = std::time::Instant::now();
+    ) -> (bool, egui::TexturesDelta, Vec<egui::epaint::ClippedShape>) {
+        let frame_start = instant::Instant::now();
 
         let raw_input = self.egui_winit.take_egui_input(window);
         let (egui_output, shapes) = self.egui_ctx.run(raw_input, |egui_ctx| {
@@ -286,18 +317,24 @@ impl EpiIntegration {
         });
 
         let needs_repaint = egui_output.needs_repaint;
-        self.egui_winit
+        let textures_delta = self
+            .egui_winit
             .handle_output(window, &self.egui_ctx, egui_output);
 
-        let app_output = self.frame.take_app_output();
-        self.quit |= app_output.quit;
-        let tex_allocation_data =
-            crate::epi::handle_app_output(window, self.egui_ctx.pixels_per_point(), app_output);
+        let mut app_output = self.frame.take_app_output();
+        app_output.drag_window &= self.can_drag_window; // Necessary on Windows; see https://github.com/emilk/egui/pull/1108
+        self.can_drag_window = false;
 
-        let frame_time = (std::time::Instant::now() - frame_start).as_secs_f64() as f32;
+        if app_output.quit {
+            self.quit = self.app.on_exit_event();
+        }
+
+        crate::epi::handle_app_output(window, self.egui_ctx.pixels_per_point(), app_output);
+
+        let frame_time = (instant::Instant::now() - frame_start).as_secs_f64() as f32;
         self.frame.lock().info.cpu_usage = Some(frame_time);
 
-        (needs_repaint, tex_allocation_data, shapes)
+        (needs_repaint, textures_delta, shapes)
     }
 
     pub fn maybe_autosave(&mut self, window: &winit::window::Window) {
@@ -310,4 +347,17 @@ impl EpiIntegration {
         self.persistence
             .save(&mut *self.app, &self.egui_ctx, window);
     }
+}
+
+#[cfg(feature = "dark-light")]
+fn prefer_dark_mode() -> Option<bool> {
+    match dark_light::detect() {
+        dark_light::Mode::Dark => Some(true),
+        dark_light::Mode::Light => Some(false),
+    }
+}
+
+#[cfg(not(feature = "dark-light"))]
+fn prefer_dark_mode() -> Option<bool> {
+    None
 }
